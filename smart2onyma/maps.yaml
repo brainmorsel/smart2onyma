@@ -1,0 +1,136 @@
+export-files:
+    tariffs-list:
+        - tariffs.csv
+        - START_DATE;OLD_TMID;TMID;NAME;COMMENTARY;PERIOD;NEXT_TMID;END_DATE
+    tariffs-prices:
+        - tarif_price.csv
+        - START_DATE;OLD_TMID;NAME;TMID;SERVID;PRICE
+    accounts-list:
+        - dog.csv
+        - ABONID;GID;TSID;CSID;DOGCODE;DOGDATE
+    accounts-attrs:
+        - attr.csv
+        - ABONID;ATTRID;ATTRIDUP;VALUE;VECPOS
+    connections-names:
+        - site.csv
+        - ABONID;DOMAINID;SITENAME;REMARK
+    connections-list:
+        - conn.csv
+        - USRCONNID;ABONID;SITENAME;RESID;TMID;REMARK;BEGDATE;STATUS;SHARED
+    connections-props:
+        - prop.csv
+        - USRCONNID;PROPERTY;VALUE;VALUENUM
+    balances-list:
+        - balance.csv
+        - DATE;DOGCODE;BALANCE
+    tarriffs-personal:
+        - dogserv.csv
+        - ABONID;SITENAME;SERVID;TMID;COST;COEF;MDATE;USRCONNID;REMARK;CCNTR;SERV_ALIAS
+    payments-list:
+        - payments.csv
+        - DOGCODE;MDATE
+
+onyma:
+    tax-schemas:
+        # Налоговые схемы
+        std: 1                     # Стандартная
+        person: 2          # Физ.лица
+        person-wo-vat: 7   # Физ.лица (без НДС)
+        vat-in-price: 6            # НДС включен в цену
+    credit-schemas:
+        # Кредитные схемы
+        prepay: 45                 # Предоплата
+        unlimited: 25              # Неограниченный кредит
+    status:
+        active: 0
+        suspended: 3
+    attributes:
+        # Атрибуты договора:
+        agreement-comment: 340  # Комментарии к договору
+        agreement-law-number: 337  # Юридический номер договора
+        agreement-old-number: 345  # Номер л\с в старом биллинге
+        address-actual: 15  # Адрес местонахождения, для ФЛ, адрес предоставления услуги
+        address-person-reg: 293
+        address-person-live: 292
+        address-company: 26  # Юридический адрес
+        address-company-post: 270
+        # Составные части адреса:
+        zip: 281
+        state: 282
+        city: 284
+        street: 286
+        house: 287
+        block: 288
+        flat: 289
+        # Физ. лицо
+        # Полное имя:
+        fullname: 291     # ФИО Абонента (композитный атрибут)
+        first-name: 279   # Имя
+        last-name: 276    # Фамилия
+        second-name: 280  # Отчество
+        birth-day: 334
+        birth-place: 346
+        passport: 117
+        secret: 399
+        name: 12  # Краткое наименование (краткое наименование организации или ФИО Абонента)
+        # Юр. лицо
+        law-name: 27  # Юридическое название (рус.) (полное наименование организации)
+        buyer: 316  # Покупатель (полное наименование организации)
+        bank-account: 29  # Банковские реквизиты (Векторный атрибут, состоит из 4х подпараметров)
+                          # 1 - Банковские реквизиты. БИК
+                          # 2 - Банковские реквизиты. Наименование банка
+                          # 3 - Банковские реквизиты. Кор.счет
+                          # 4 - Банковские реквизиты. Расчетный счет
+        inn: 13
+        kpp: 35
+        ogrn: 310
+        okonh: 36
+        okpo: 37
+        eisup: 311  # Код контрагента ЕИСУП
+        buyer-kpp: 317  # КПП Покупателя
+        c-head-title: 17        # Должность главы организации (имен.п.)
+        c-head-title-gen: 100   # Должность главы организации (род.п.)
+        c-head-name: 18         # ФИО главы организации (имен.п.)
+        c-head-name-gen: 104    # ФИО главы организации (род.п.)
+        c-accountant-title: 19  # Должность лица, подписывающего фин.документы (имен.п.)
+        c-accountant-name: 20   # ФИО главного бухгалтера (имен.п.)
+        # Контакты:
+        manager: 456
+        phone-common: 24    # Телефон общий
+        phone-payment: 114  # Телефон по вопросам оплаты
+        notify-email: 21    # e-mail ответственного по оплате
+        notify-sms: 304     # Телефон для SMS расылок
+        notify-fax: 25
+    service:
+        # Идентификаторы услуг
+        fee-internet: 1423      # Абонентская плата за доступ к сети Интернет
+        fee-ctv: 1424           # Абонентская плата за КТВ
+        fee-phone-number: 1426  # Абонентская плата за телефонный номер
+        fee-static-ip: 1432     # Статический IP-адрес
+    resources:
+        # Идентификаторы ресурсов
+        internet-connection: 10481  # Подключение ШПД
+        phone-number: 10621         # Телефонный номер
+        ctv-connection: 10662       # Подключение КТВ
+        lk-access: 10721            # Доступ в личный кабинет
+        dynamic-ip-addr: 10501      # Динамический IP адрес
+        static-ip-addr: 10504       # Статический IP адрес
+        internet-connection-net: 10982  # Подключение ip-адрес/подсеть
+        equipment-credit: 11641     # Оборудование в рассрочку
+    properties:
+        internet-login: 13865     # логин для PPPoE
+        internet-password: 13881  # пароль для PPPoE
+        lk-login: 14121           # логин для личного кабинета
+        lk-password: 14122        # пароль для личного кабинета
+        cypher: 13871             # метод шифрования
+        static-ip-pool-name: 13916
+        static-ip-addr: 13866
+        static-net: 14365         # IP адрес-подсеть/маска
+        static-net-pool-name: 14361 # [ТТК] Наименование блока сетей
+        phone-ats-name: 14006     # наименование АТС
+        phone-zone-code: 14004    # код зоны (наименование зоны. Нужно создать ресурс ТТК Телефонный код.)
+        phone-series: 14009       # серия номеров
+        phone-number: 14021       # телефонный номер
+        netflow-collector: 14342  # Наименование точки сбора ip-трафика
+    technological-tariffs:
+        lk: 2                     # Технологический тариф для Личного кабинета

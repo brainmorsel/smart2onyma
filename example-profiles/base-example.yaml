@@ -1,0 +1,23 @@
+sql-dialect: postgres  # или oracle
+# Данные для подключения к БД
+connection-uri: username:password@host/database
+# Директория для создаваемых файлов
+export-data-dir: export_data/
+# Карта тарифов для сопоставления, выгружать отчёт 15874 [TTK API] Группы
+# Формат CSV " ; UTF-8
+tariffs-map-file: tariffs.csv
+# Карта групп абонентов, выгружать отчёт 17479 [Байкал] ADM. Загруженные тар.планы
+# Формат CSV " ; UTF-8
+groups-map-file: groups.csv
+# ID домена для обонентов, загружаемых этим профилем
+domain-id: 21211
+# ID шаблонных тарифов для соответсвующей категории
+tariff-templates:
+    internet: 5355  # Интернет
+    phone: 5355     # Телефония
+    ctv: 5355       # Телевидение
+    service-credit: 10191  # Шаблон: Оборудование в рассрочку
+# Имена и диапозоны пулов статических адресов
+static-ip-pools:
+    pool-a: 10.0.1.0/24
+    pool-b: 10.0.2.0/24

@@ -1,0 +1,70 @@
+SELECT DISTINCT
+	 ac.id as account_id
+	,ac.account_number
+	,child.id as conn_id
+	,case status.status
+		when 1 then 'active'  -- новый
+		when 3 then 'active'  -- активный
+		when 4 then 'suspended' -- приостановленый
+		when 5 then 'suspended' -- заблокированый
+	 end as status
+	,sst.name as subservice
+	,u.name as conn_name
+	,u.description
+	,u.service_type
+	,u.max_concurent_sessions
+{% if c_type == 'internet' %}
+	,ip_u.login
+	,ip_u.password
+	,ip_u.start_ip
+	,ip_u.end_ip
+	,ip_r.name as router
+	,case ip_u.user_type
+		when 8 then 'pppoe'
+		when 9 then 'ipoe'
+		when 1 then 'ipoe'
+		when 6 then 'ipoe'
+	 end as conn_type
+{% elif c_type == 'phone' %}
+	,ph_u.real_start_num as phone_number
+	,ats.name as ats_name
+{% elif c_type == 'ctv' %}
+{% endif %}
+	,th.tariff_id
+	,t.name as tariff_name
+
+FROM core.accounts ac
+JOIN core.accounts child ON child.parent_id = ac.id AND ac.parent_id IS NULL
+JOIN core.account_statuses_enddate status ON child.id = status.account_id AND status.end_date IS NULL
+
+JOIN core.users u ON child.id = u.account_id
+LEFT JOIN core.service_sub_types sst ON u.user_service_sub_type_id = sst.id
+
+{% if c_type == 'internet' %}
+JOIN iptraf.users ip_u ON ip_u.user_id = u.id AND ip_u.end_date IS NULL
+LEFT JOIN iptraf.routers ip_r ON ip_u.router_id = ip_r.id
+{% elif c_type == 'phone' %}
+JOIN phone.users ph_u ON ph_u.user_id = u.id AND ph_u.end_date IS NULL
+JOIN phone.exchanges ats ON ats.id = ph_u.exchange_id
+{% elif c_type == 'ctv' %}
+{% endif %}
+
+JOIN core.tariff_history_enddate th ON (
+    status.account_id = th.account_id AND th.start_date <= CURRENT_DATE
+    AND (th.end_date > CURRENT_DATE OR th.end_date IS NULL)
+    )
+JOIN core.tariffs t ON t.id = th.tariff_id
+
+WHERE
+(status.status IN (1, 3)
+  OR (status.status IN (4, 5) AND status.start_date > (CURRENT_DATE - 90)))
+
+{% if c_type == 'internet' %}
+	AND u.service_type = 3
+{% elif c_type == 'phone' %}
+	AND u.service_type = 4
+	AND t.name != '---БЕЗ ТАРИФА---'  -- игнорируем ОА с МТС
+{% elif c_type == 'ctv' %}
+	AND u.service_type = 10
+{% endif %}
+	AND ac.account_number = :account_number
