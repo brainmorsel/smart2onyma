@@ -197,7 +197,7 @@ class BillingDataExporter:
             def write_tariff(r, onyma_tpl_id, service_id):
                 commentary = r.cnt
                 end_date = ''
-                price = Decimal(r.fee) or Decimal('0.00')
+                price = Decimal(r.fee or '0.00')
                 price = (price * Decimal(1.18)).quantize(Decimal('1.00'))
                 # 2 - архивный
                 if r.status == 2:
@@ -223,11 +223,17 @@ class BillingDataExporter:
                 )
 
             print('loading internet tariffs...')
+            # регулярное выражение для определения ADSL тарифов
+            adsl_re = re.compile(self.profile.get('tariffs-adsl-match-re', '.*ADSL.*'))
             for r in c.execute('tariffs.sql'):
+                if adsl_re.match(r.name):
+                    service_id = self.get_onyma_service_id('fee-internet-adsl')
+                else:
+                    service_id = self.get_onyma_service_id('fee-internet')
                 write_tariff(
                     r,
                     self.get_onyma_tpl_tarrif_id('internet'),
-                    self.get_onyma_service_id('fee-internet')
+                    service_id
                 )
 
             print('loading phone tariffs...')
