@@ -394,9 +394,9 @@ class BillingDataExporter:
                     f_attr.write(r.id, r.num, 'house', r.address_type)
                     f_attr.write(r.id, r.building or r.block, 'block', r.address_type)
                     f_attr.write(r.id, r.flat, 'flat', r.address_type)
+                    f_attr.write(r.id, r.entrance, 'entrance', r.address_type)
+                    f_attr.write(r.id, r.floor, 'floor', r.address_type)
                     # В ониме нет (пока?) таких атрибутов
-                    f_attr.write(r.id, r.entrance, None, r.address_type)
-                    f_attr.write(r.id, r.floor, None, r.address_type)
                     f_attr.write(r.id, r.postbox, None, r.address_type)
 
             def export_connections(acc_num, c_type):
