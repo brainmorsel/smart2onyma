@@ -26,13 +26,13 @@ class Writer:
         self.file.close()
 
     def write_header(self):
-        self.file.write(';'.join(self.fields) + '\n')
+        self.file.write(';'.join(self.fields) + ';\n')
 
     def write(self, **items):
         record = []
         for field in self.fields:
             record.append(str(items.get(field, '')))
-        self.file.write(';'.join(record) + '\n')
+        self.file.write(';'.join(record) + ';\n')
 
 
 class AccountAttrsWriter(Writer):
@@ -122,7 +122,7 @@ class PhoneNumberPools:
 
 
 class BillingDataExporter:
-    def __init__(self, profile_file):
+    def __init__(self, profile_file, accs_list=None):
         self.profile = mapper.load_profile(profile_file)
         self.db = db.Engine(self.profile['sql-dialect'], self.profile['connection-uri'])
         self.exporter = Exporter(self.profile.get('export-data-dir', 'export_data/'))
@@ -132,6 +132,7 @@ class BillingDataExporter:
             self.add_filter(**filter)
 
         self._limit = self.profile.get('limit', 0)
+        self._accs_list = accs_list
 
     def add_filter(self, name, **filter_params):
         self.db.tpl_env.globals['filters'][name] = filter_params
@@ -187,7 +188,8 @@ class BillingDataExporter:
     def clear_output_files(self):
         for name in mapper.maps['export-files'].keys():
             with self.exporter.open(name, mode='w') as file:
-                file.write_header()
+                pass
+                # file.write_header()
 
     def export_tariffs(self):
         with self.db.connect() as c, \
@@ -551,8 +553,11 @@ class BillingDataExporter:
             for r in c.execute('phone-number-pools.sql'):
                 phone_pools.add(r.start_ani, r.end_ani, r.zone_code, r.comments)
 
-            print('counting accounts...')
-            cnt_estimate = estimate_count('accounts-list.sql')
+            if self._accs_list:
+                cnt_estimate = len(self._accs_list)
+            else:
+                print('counting accounts...')
+                cnt_estimate = estimate_count('accounts-list.sql')
             cnt_processed = 0
             cnt_errors = 0
 
@@ -561,17 +566,27 @@ class BillingDataExporter:
             for r in c.execute('account-active-promised-paymens.sql'):
                 promised_payments[r.account_number] = r.amount
 
-            print('loading accounts...')
-            for r in c.execute('accounts-list.sql'):
+            if self._accs_list:
+                accounts = self._accs_list
+            else:
+                accounts = []
+                print('loading accounts...')
+                for r in c.execute('accounts-list.sql'):
+                    accounts.append(r.account_number)
+
+            for account_number in accounts:
                 try:
-                    if export_one(r.account_number):
+                    if export_one(account_number):
                         cnt_processed += 1
                     else:
-                        errlog.write('account {0}\n'.format(r.account_number))
+                        errlog.write('account {0}\n'.format(account_number))
                         cnt_errors += 1
                 except Exception as err:
-                    print(err)
-                    print('account: {0}'.format(r.account_number))
+                    import traceback
+                    print('')
+                    traceback.print_exc()
+                    # traceback.print_tb(err.__traceback__)
+                    print('account: {0}'.format(account_number))
                     break
 
                 print('estimate/processed/errors: {0}/{1}/{2}'.format(

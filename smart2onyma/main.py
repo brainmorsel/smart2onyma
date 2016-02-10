@@ -10,10 +10,18 @@ def main():
 
 @main.command()
 @click.option('--append', default=False, help='Append new data to existed export')
+@click.option('--accs-list-file')
 @click.argument('profiles', nargs=-1)
-def clientdata(append, profiles):
+def clientdata(append, profiles, accs_list_file):
+    accs_list = None
+    if accs_list_file:
+        accs_list = []
+        with open(accs_list_file) as f:
+            for line in f:
+                accs_list.append(line.strip())
+
     for profile in profiles:
-        bde = export.BillingDataExporter(profile)
+        bde = export.BillingDataExporter(profile, accs_list)
         if not append:
             bde.clear_output_files()
         bde.export_one_by_one()

@@ -22,7 +22,7 @@ export-files:
         - USRCONNID;PROPERTY;VALUE;VALUENUM
     balances-list:
         - balance.csv
-        - DATE;DOGCODE;BALANCE
+        - DATE;DOGCODE;BALANCE;COMMENTARY
     tarriffs-personal:
         - dogserv.csv
         - ABONID;SITENAME;SERVID;TMID;COST;COEF;MDATE;USRCONNID;REMARK;CCNTR;SERV_ALIAS
