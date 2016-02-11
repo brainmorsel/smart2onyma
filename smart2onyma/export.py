@@ -158,6 +158,9 @@ class BillingDataExporter:
                 return name
         return None
 
+    def get_onyma_utid(self, name):
+        return mapper.maps['onyma']['account-types'][name]
+
     def get_onyma_tsid(self, name):
         return mapper.maps['onyma']['tax-schemas'][name]
 
@@ -316,7 +319,8 @@ class BillingDataExporter:
                     TSID=tsid,
                     CSID=csid,
                     DOGCODE=r.account_number,
-                    DOGDATE=r.create_date.strftime('%d.%m.%Y')
+                    DOGDATE=r.create_date.strftime('%d.%m.%Y'),
+                    UTID=self.get_onyma_utid(r.acc_type)
                 )
 
                 f_attr.write(r.id, r.notification_email, 'notify-email')

@@ -7,7 +7,7 @@ export-files:
         - START_DATE;OLD_TMID;NAME;TMID;SERVID;PRICE
     accounts-list:
         - dog.csv
-        - ABONID;GID;TSID;CSID;DOGCODE;DOGDATE
+        - ABONID;GID;TSID;CSID;DOGCODE;DOGDATE;UTID;PPID
     accounts-attrs:
         - attr.csv
         - ABONID;ATTRID;ATTRIDUP;VALUE;VECPOS
@@ -31,6 +31,9 @@ export-files:
         - DOGCODE;MDATE
 
 onyma:
+    account-types:
+        person: 25
+        company: 26
     tax-schemas:
         # Налоговые схемы
         std: 1                     # Стандартная
