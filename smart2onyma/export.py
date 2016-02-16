@@ -604,3 +604,11 @@ class BillingDataExporter:
             print(err_groups)
         if debug:
             print(debug_marks)
+
+    def show_base_companies(self):
+        format = '{0:<10} {2:<10} {1}'
+        print(format.format('Company ID', 'Company Name', 'Accounts'))
+        print(format.format('----------', '------------', '--------'))
+        with self.db.connect() as c:
+            for r in c.execute('base-companies.sql'):
+                print(format.format(r.base_company_id, r.name, r.cnt))

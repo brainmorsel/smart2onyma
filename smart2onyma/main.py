@@ -50,3 +50,11 @@ def tariffs_srv_credit(append, profiles):
             bde.clear_output_files()
         bde.export_srv_credit_tariffs()
         append = True
+
+
+@main.command()
+@click.argument('profiles', nargs=-1)
+def show_base_companies(profiles):
+    for profile in profiles:
+        bde = export.BillingDataExporter(profile)
+        bde.show_base_companies()

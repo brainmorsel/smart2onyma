@@ -27,4 +27,7 @@ FROM (
 		{% if 'prefix' in filters %}
 		AND ac.account_number LIKE '{{filters.prefix.value}}%'
 		{% endif %}
+		{% if 'base_company' in filters %}
+		AND ac.base_company_id = {{filters.base_company.id}}
+		{% endif %}
 ) lst

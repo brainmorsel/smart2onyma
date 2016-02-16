@@ -10,6 +10,7 @@ SELECT t.id,
        pr.fee,
        tc.cnt
 FROM core.tariffs t
+JOIN core.tariff_base_companies tbc ON tbc.tariff_id = t.id
 LEFT JOIN core.tariff_time_limits ttl ON (t.id = ttl.tariff_id)
 
 {% if phone_tariffs %}
@@ -50,4 +51,7 @@ WHERE
   AND t.forcompany = 1
 {% elif person %}
   AND t.forperson = 1
+{% endif %}
+{% if 'base_company' in filters %}
+  AND tbc.base_company_id = {{filters.base_company.id}}
 {% endif %}
