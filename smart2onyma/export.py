@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime
+import calendar
 from decimal import Decimal
 import ipaddress
 from ipaddress import ip_address, ip_network
@@ -121,6 +122,22 @@ class PhoneNumberPools:
         return None
 
 
+class ErrorsCounter:
+    def __init__(self, logfile):
+        self.logfile = logfile
+        self.count = 0
+        self.accounts = set()
+        self.groups = set()
+
+    def error(self, account_number, message):
+        self.accounts.add(account_number)
+        self.logfile.write('{0}: {1}\n'.format(account_number, message))
+
+    def no_group(self, account_number, group_name):
+        self.groups.add(group_name)
+        self.error(account_number, 'no group map for "{0}"'.format(group_name))
+
+
 class BillingDataExporter:
     def __init__(self, profile_file, accs_list=None):
         self.profile = mapper.load_profile(profile_file)
@@ -133,6 +150,7 @@ class BillingDataExporter:
 
         self._limit = self.profile.get('limit', 0)
         self._accs_list = accs_list
+        self._dayly_write_off_fix = self.profile.get('dayly-write-off-fix', False)
 
     def add_filter(self, name, **filter_params):
         self.db.tpl_env.globals['filters'][name] = filter_params
@@ -183,7 +201,7 @@ class BillingDataExporter:
         return mapper.maps['onyma']['technological-tariffs'][name]
 
     def get_onyma_tariff_id(self, origin_id):
-        return self.profile['tariffs-map'][int(origin_id)]
+        return self.profile['tariffs-map'].get(int(origin_id), None)
 
     def get_onyma_ats_name(self, origin_name):
         return origin_name  # TODO пока заглушка
@@ -280,11 +298,12 @@ class BillingDataExporter:
                 self.exporter.open_account_attrs() as f_attr, \
                 self.exporter.open('connections-names') as f_cn, \
                 self.exporter.open('connections-list') as f_cl, \
+                self.exporter.open('connections-status-history') as f_chist, \
                 self.exporter.open_connection_props() as f_cp, \
-                self.exporter.open('balances-list') as f_bl:
+                self.exporter.open('balances-list') as f_bl, \
+                self.exporter.open('payments-list') as f_pay:
 
-            err_groups = set()
-            debug_marks = set()
+            _errors = ErrorsCounter(errlog)
 
             # считает предпологаемое количество выгружаемых лицевых с учётом фильтров
             def estimate_count(sql_file):
@@ -298,13 +317,9 @@ class BillingDataExporter:
             def export_one(acc_num):
                 r = c.execute('account-base-info.sql', account_number=acc_num).fetchone()
 
-                export_balance(r)
-
                 gid = self.get_onyma_gid(r.group_name)
                 if gid is None:
-                    errlog.write('group {0}\n'.format(r.group_name))
-                    err_groups.add(r.group_name)
-                    return False
+                    _errors.no_group(acc_num, r.group_name)
 
                 if r.acc_type == 'person':
                     tsid = self.get_onyma_tsid('person')
@@ -318,7 +333,7 @@ class BillingDataExporter:
                     GID=gid,
                     TSID=tsid,
                     CSID=csid,
-                    DOGCODE=r.account_number,
+                    DOGCODE=acc_num,
                     DOGDATE=r.create_date.strftime('%d.%m.%Y'),
                     UTID=self.get_onyma_utid(r.acc_type)
                 )
@@ -330,16 +345,19 @@ class BillingDataExporter:
 
                 if r.acc_type == 'person':
                     export_person_info(acc_num)
-                    debug_marks.add('person')
                 else:  # company
-                    debug_marks.add('company')
                     export_company_info(acc_num)
 
                 export_contacts(acc_num)
                 export_addresses(acc_num, r.acc_type)
-                export_connections(acc_num, 'lk')
-                export_connections(acc_num, 'internet')
-                export_connections(acc_num, 'ctv')
+
+                balance_correction = 0
+                balance_correction += export_connections(acc_num, 'lk')
+                balance_correction += export_connections(acc_num, 'internet')
+                balance_correction += export_connections(acc_num, 'ctv')
+
+                export_balance(r, balance_correction)
+                export_payments(acc_num)
 
                 return True
 
@@ -370,7 +388,7 @@ class BillingDataExporter:
             def export_company_info(acc_num):
                 r = c.execute('account-company-info.sql', account_number=acc_num).fetchone()
                 if not r:
-                    errlog.write('export_company_info {0}\n'.format(acc_num))
+                    _errors.error(acc_num, 'export_company_info')
                     return
 
                 co_name = r.cpt_short + ' ' + r.co_name
@@ -406,6 +424,9 @@ class BillingDataExporter:
                     f_attr.write(r.id, r.postbox, None, r.address_type)
 
             def export_connections(acc_num, c_type):
+                balance_correction = 0
+                now = datetime.now()
+                days_in_month = calendar.monthrange(now.year, now.month)[1]
                 sql_to_exec = 'connections.sql'
 
                 if c_type == 'lk':
@@ -415,7 +436,6 @@ class BillingDataExporter:
                 res = c.execute(sql_to_exec, c_type=c_type, account_number=acc_num).fetchall()
 
                 for idx in range(len(res)):
-                    debug_marks.add('conn_' + c_type)
                     r = res[idx]
                     resource_id = None
 
@@ -426,11 +446,17 @@ class BillingDataExporter:
                         tariff_id = self.get_onyma_tariff_id(r.tariff_id)
                         status_id = self.get_onyma_status_id(r.status)
 
+                    if tariff_id is None:
+                        _errors.error(acc_num, 'no tariff map for {0}'.format(r.tariff_id))
+
                     if c_type == 'lk':
                         name_prefix = 'lc'
                         resource_id = self.get_onyma_resource_id('lk-access')
                         export_connections_lk_props(r)
                     elif c_type == 'internet':
+                        if self._dayly_write_off_fix and r.status == 'active':
+                            balance_correction = - r.tariff_fee / days_in_month
+
                         name_prefix = 'i'
                         if r.conn_type == 'ipoe':
                             resource_id = self.get_onyma_resource_id('internet-connection-net')
@@ -471,6 +497,15 @@ class BillingDataExporter:
                         STATUS=status_id,
                         SHARED=0
                     )
+                    if c_type != 'lk':
+                        for h in c.execute('connection-statuses.sql', conn_id=r.conn_id):
+                            f_chist.write(
+                                USRCONNID=r.conn_id,
+                                SITENAME=conn_name,
+                                MDATE=h.start_date,
+                                STATUS=self.get_onyma_status_id(h.status)
+                            )
+                return balance_correction
 
             def export_connections_internet_props(r):
                 if r.conn_type == 'pppoe':
@@ -481,14 +516,12 @@ class BillingDataExporter:
                         ip = r.start_ip or 0
                         # один IP адрес
                         if ip == 0:
-                            debug_marks.add('ip-dynamic')
                             # динамический
                             # магические константы, смысл приблизительно такой:
                             # к подключению привязывается ресурс Динамический IP
                             res_id = self.get_onyma_resource_id('dynamic-ip-addr')
                             f_cp.write(r.conn_id, 0, res_id, 10)
                         else:
-                            debug_marks.add('ip-static')
                             # статический
                             # магические константы, смысл приблизительно такой:
                             # к подключению привязывается ресурс Статический IP
@@ -498,14 +531,13 @@ class BillingDataExporter:
                             ip_addr = ip_address(ip)
                             pool_name = self.get_onyma_static_ip_pool(ip_addr)
                             if not pool_name:
-                                errlog.write('no-pool-for {0} {1}\n'.format(r.account_number, ip_addr))
+                                _errors.error(r.account_number, 'no ip pool for {0}'.format(ip_addr))
                             f_cp.write(r.conn_id, 'static-ip-pool-name', pool_name)
                             f_cp.write(r.conn_id, 'static-ip-addr', str(ip_addr))
                     else:
                         # подсеть, на PPPoE этого не должно быть
                         print('OH! Shit! subnet on PPPoE for account: ' + r.account_number)
                 elif r.conn_type == 'ipoe':
-                    debug_marks.add('ip-net')
 
                     if r.start_ip == r.end_ip:
                         ip_addr = ip_address(r.start_ip)
@@ -516,7 +548,7 @@ class BillingDataExporter:
                         pool_name = self.get_onyma_static_ip_pool(network)
 
                     if not pool_name:
-                        errlog.write('no-pool-for {0} {1}\n'.format(r.account_number, str(network)))
+                        _errors.error(r.account_number, 'no ip pool for {0}'.format(str(network)))
 
                     f_cp.write(r.conn_id, 'netflow-collector', r.router)
                     f_cp.write(r.conn_id, 'static-net-pool-name', pool_name)
@@ -539,15 +571,23 @@ class BillingDataExporter:
                 f_cp.write(r.conn_id, 'phone-series', series)
                 f_cp.write(r.conn_id, 'phone-number', r.phone_number)
 
-            def export_balance(r):
+            def export_balance(r, balance_correction):
                 promised = Decimal(promised_payments.get(r.account_number, 0))
-                balance = Decimal(r.child_balance) - promised
+                balance = Decimal(r.child_balance) - promised + Decimal(balance_correction)
                 date = r.now.strftime('%d.%m.%Y %H:%M:%S')
                 f_bl.write(
                     DATE=date,
                     DOGCODE=r.account_number,
                     BALANCE=balance
                 )
+
+            def export_payments(acc_num):
+                for r in c.execute('account-payments.sql', account_number=acc_num):
+                    f_pay.write(
+                        DOGCODE=r.account_number,
+                        MDATE=r.payment_date,
+                        SUM=r.sum
+                    )
 
             def export_service_credit(acc_num):
                 pass
@@ -562,8 +602,6 @@ class BillingDataExporter:
             else:
                 print('counting accounts...')
                 cnt_estimate = estimate_count('accounts-list.sql')
-            cnt_processed = 0
-            cnt_errors = 0
 
             print('preload promised payments...')
             promised_payments = {}
@@ -578,14 +616,12 @@ class BillingDataExporter:
                 for r in c.execute('accounts-list.sql'):
                     accounts.append(r.account_number)
 
+            cnt_processed = 0
             for account_number in accounts:
                 try:
-                    if export_one(account_number):
-                        cnt_processed += 1
-                    else:
-                        errlog.write('account {0}\n'.format(account_number))
-                        cnt_errors += 1
-                except Exception as err:
+                    export_one(account_number)
+                    cnt_processed += 1
+                except Exception:
                     import traceback
                     print('')
                     traceback.print_exc()
@@ -593,17 +629,13 @@ class BillingDataExporter:
                     print('account: {0}'.format(account_number))
                     break
 
-                print('estimate/processed/errors: {0}/{1}/{2}'.format(
-                    cnt_estimate, cnt_processed, cnt_errors), end='\r')
+                print('estimate/processed/errors: {0}/{1}/{2}                   '.format(
+                    cnt_estimate, cnt_processed, len(_errors.accounts)), end='\r')
 
                 if self._limit and cnt_processed >= self._limit:
                     break
 
         print('\ndone!')
-        if len(err_groups):
-            print(err_groups)
-        if debug:
-            print(debug_marks)
 
     def show_base_companies(self):
         format = '{0:<10} {2:<10} {1}'

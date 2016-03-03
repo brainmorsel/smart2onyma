@@ -20,6 +20,9 @@ export-files:
     connections-props:
         - prop.csv
         - USRCONNID;PROPERTY;VALUE;VALUENUM
+    connections-status-history:
+        - conn_status_hist.csv
+        - USRCONNID;SITENAME;MDATE;STATUS
     balances-list:
         - balance.csv
         - DATE;DOGCODE;BALANCE;COMMENTARY
@@ -28,7 +31,7 @@ export-files:
         - ABONID;SITENAME;SERVID;TMID;COST;COEF;MDATE;USRCONNID;REMARK;CCNTR;SERV_ALIAS
     payments-list:
         - payments.csv
-        - DOGCODE;MDATE
+        - DOGCODE;MDATE;SUM
 
 onyma:
     account-types:

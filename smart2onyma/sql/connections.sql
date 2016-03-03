@@ -32,6 +32,7 @@ SELECT DISTINCT
 {% endif %}
 	,th.tariff_id
 	,t.name as tariff_name
+	,pr.fee as tariff_fee
 
 FROM core.accounts ac
 JOIN core.accounts child ON child.parent_id = ac.id AND ac.parent_id IS NULL
@@ -40,20 +41,23 @@ JOIN core.account_statuses_enddate status ON child.id = status.account_id AND st
 JOIN core.users u ON child.id = u.account_id
 LEFT JOIN core.service_sub_types sst ON u.user_service_sub_type_id = sst.id
 
-{% if c_type == 'internet' %}
-JOIN iptraf.users ip_u ON ip_u.user_id = u.id AND ip_u.end_date IS NULL
-LEFT JOIN iptraf.routers ip_r ON ip_u.router_id = ip_r.id
-{% elif c_type == 'phone' %}
-JOIN phone.users ph_u ON ph_u.user_id = u.id AND ph_u.end_date IS NULL
-JOIN phone.exchanges ats ON ats.id = ph_u.exchange_id
-{% elif c_type == 'ctv' %}
-{% endif %}
-
 JOIN core.tariff_history_enddate th ON (
     status.account_id = th.account_id AND th.start_date <= CURRENT_DATE
     AND (th.end_date > CURRENT_DATE OR th.end_date IS NULL)
     )
 JOIN core.tariffs t ON t.id = th.tariff_id
+
+{% if c_type == 'internet' %}
+JOIN iptraf.users ip_u ON ip_u.user_id = u.id AND ip_u.end_date IS NULL
+LEFT JOIN iptraf.routers ip_r ON ip_u.router_id = ip_r.id
+LEFT JOIN iptraf.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
+{% elif c_type == 'phone' %}
+JOIN phone.users ph_u ON ph_u.user_id = u.id AND ph_u.end_date IS NULL
+JOIN phone.exchanges ats ON ats.id = ph_u.exchange_id
+LEFT JOIN phone.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
+{% elif c_type == 'ctv' %}
+LEFT JOIN tv.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
+{% endif %}
 
 WHERE
 (status.status IN (1, 3)
