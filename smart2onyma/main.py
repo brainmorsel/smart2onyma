@@ -58,3 +58,11 @@ def show_base_companies(profiles):
     for profile in profiles:
         bde = export.BillingDataExporter(profile)
         bde.show_base_companies()
+
+
+@main.command()
+@click.argument('profiles', nargs=-1)
+def policy(profiles):
+    for profile in profiles:
+        bde = export.BillingDataExporter(profile)
+        bde.export_policy()

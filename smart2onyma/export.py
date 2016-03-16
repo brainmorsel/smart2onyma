@@ -1,6 +1,8 @@
 import os
 import re
 from datetime import datetime
+from datetime import timezone
+from datetime import timedelta
 import calendar
 from decimal import Decimal
 import ipaddress
@@ -197,8 +199,8 @@ class BillingDataExporter:
     def get_onyma_property_id(self, name):
         return mapper.maps['onyma']['properties'][name]
 
-    def get_onyma_tech_tariff_id(self, name):
-        return mapper.maps['onyma']['technological-tariffs'][name]
+    def get_onyma_tech_tariff_id(self):
+        return mapper.maps['onyma']['technological-tariff']
 
     def get_onyma_tariff_id(self, origin_id):
         return self.profile['tariffs-map'].get(int(origin_id), None)
@@ -289,6 +291,34 @@ class BillingDataExporter:
                     NAME=r.svc_name,
                 )
             print('done!')
+
+    def export_policy(self):
+        with self.db.connect() as c, \
+                self.exporter.open('connections-list') as f_cl, \
+                self.exporter.open_connection_props() as f_cp:
+            policy_list = {}
+            for r in c.execute('policy-items.sql'):
+                if r.id not in policy_list:
+                    policy_list[r.id] = {'name': r.name, 'id': r.id, 'items': []}
+                policy_list[r.id]['items'].append((r.attribute, r.value))
+
+            resource_id = self.get_onyma_resource_id('internet-policy')
+            date_start = datetime.now().strftime('%d.%m.%Y')
+            for conn_id, p in policy_list.items():
+                f_cl.write(
+                    USRCONNID=conn_id,
+                    ABONID=self.profile['base-account-id'],
+                    SITENAME=self.profile['base-account-sitename'],
+                    RESID=resource_id,
+                    TMID=self.get_onyma_tech_tariff_id(),
+                    BEGDATE=date_start,
+                    STATUS=self.get_onyma_status_id('active'),
+                    SHARED=0
+                )
+                f_cp.write(conn_id, 'policy-CoA-type', 'HIGH')
+                f_cp.write(conn_id, 'policy-name', p['name'])
+                for name, value in p['items']:
+                    f_cp.write(conn_id, name, value)
 
     # Большущая страшная функция для выгрузки всего, что можно
     def export_one_by_one(self, debug=False):
@@ -440,7 +470,7 @@ class BillingDataExporter:
                     resource_id = None
 
                     if c_type == 'lk':
-                        tariff_id = self.get_onyma_tech_tariff_id('lk')
+                        tariff_id = self.get_onyma_tech_tariff_id()
                         status_id = self.get_onyma_status_id('active')
                     else:
                         tariff_id = self.get_onyma_tariff_id(r.tariff_id)
@@ -497,21 +527,41 @@ class BillingDataExporter:
                         STATUS=status_id,
                         SHARED=0
                     )
-                    if c_type != 'lk':
-                        for h in c.execute('connection-statuses.sql', conn_id=r.conn_id):
-                            f_chist.write(
-                                USRCONNID=r.conn_id,
-                                SITENAME=conn_name,
-                                MDATE=h.start_date,
-                                STATUS=self.get_onyma_status_id(h.status)
-                            )
                 return balance_correction
 
             def export_connections_internet_props(r):
                 if r.conn_type == 'pppoe':
+                    # пришлось сюда засунуть сохранение статусов объекта авторизации
+                    tz = timezone(timedelta(hours=9))  # TODO: make profile option
+                    first_day = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=tz)
+                    last_status = None  # до начала тукещего месяца
+
+                    def write_status(date, status):
+                        status_date = date.astimezone(tz).strftime('%d.%m.%Y %H:%M:%S')
+                        f_chist.write(
+                            LOGIN=r.login,
+                            MDATE=status_date,
+                            STATUS=self.get_onyma_status_id(status)
+                        )
+
+                    for h in c.execute('connection-statuses.sql', conn_id=r.conn_id):
+                        # Тут мы отсекаем все статусы до начала текущего месяца
+                        # попутно сохраняя последний из них
+                        if h.start_date < first_day:
+                            last_status = h.status
+                            continue
+                        elif last_status is not None:
+                            write_status(first_day, last_status)
+                            last_status = None
+                        write_status(h.start_date, h.status)
+                    # вывести статус на начало месяца, если бельше статусов нет?
+                    if last_status is not None:
+                        write_status(first_day, last_status)
+
                     f_cp.write(r.conn_id, 'internet-login', r.login)
                     f_cp.write(r.conn_id, 'internet-password', r.password)
                     f_cp.write(r.conn_id, 'cypher', 'PLAIN')
+
                     if r.start_ip == r.end_ip:
                         ip = r.start_ip or 0
                         # один IP адрес

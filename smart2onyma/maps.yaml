@@ -22,7 +22,7 @@ export-files:
         - USRCONNID;PROPERTY;VALUE;VALUENUM
     connections-status-history:
         - conn_status_hist.csv
-        - USRCONNID;SITENAME;MDATE;STATUS
+        - LOGIN;STATUS;MDATE
     balances-list:
         - balance.csv
         - DATE;DOGCODE;BALANCE;COMMENTARY
@@ -126,6 +126,7 @@ onyma:
         static-ip-addr: 10504       # Статический IP адрес
         internet-connection-net: 10982  # Подключение ip-адрес/подсеть
         equipment-credit: 11641     # Оборудование в рассрочку
+        internet-policy: 10521      # Политика ограничения интернета
     properties:
         internet-login: 13865     # логин для PPPoE
         internet-password: 13881  # пароль для PPPoE
@@ -141,5 +142,9 @@ onyma:
         phone-series: 14009       # серия номеров
         phone-number: 14021       # телефонный номер
         netflow-collector: 14342  # Наименование точки сбора ip-трафика
-    technological-tariffs:
-        lk: 2                     # Технологический тариф для Личного кабинета
+        policy-name: 13922
+        policy-CoA-type: 14181
+        Cisco-Account-Info: 13921
+        Cisco-AVPair: 13923
+        Cisco-Service-Info: 13924
+    technological-tariff: 2       # Технологический тариф
