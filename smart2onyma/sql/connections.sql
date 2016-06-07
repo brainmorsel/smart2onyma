@@ -3,7 +3,7 @@ SELECT DISTINCT
 	,ac.account_number
 	,child.id as conn_id
 	,case status.status
-		when 1 then 'active'  -- новый
+		when 1 then 'inactive'  -- новый
 		when 3 then 'active'  -- активный
 		when 4 then 'suspended' -- приостановленый
 		when 5 then 'suspended' -- заблокированый
@@ -29,6 +29,9 @@ SELECT DISTINCT
 	,ph_u.real_start_num as phone_number
 	,ats.name as ats_name
 {% elif c_type == 'ctv' %}
+{% elif c_type == 'npl' %}
+  ,n_plf1.address as platform1
+  ,n_plf2.address as platform2
 {% endif %}
 	,th.tariff_id
 	,t.name as tariff_name
@@ -57,11 +60,16 @@ JOIN phone.exchanges ats ON ats.id = ph_u.exchange_id
 LEFT JOIN phone.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
 {% elif c_type == 'ctv' %}
 LEFT JOIN tv.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
+{% elif c_type == 'npl' %}
+LEFT JOIN npl.pricelists_enddate pr ON pr.tariff_id = th.tariff_id AND pr.end_date IS NULL
+LEFT JOIN npl.users nu ON nu.user_id = u.id
+LEFT JOIN npl.platforms n_plf1 ON nu.platform1 = n_plf1.id
+LEFT JOIN npl.platforms n_plf2 ON nu.platform2 = n_plf2.id
 {% endif %}
 
 WHERE
-(status.status IN (1, 3)
-  OR (status.status IN (4, 5) AND status.start_date > (CURRENT_DATE - 90)))
+(status.status IN (1, 3, 4)
+  OR (status.status = 5 AND status.start_date > (CURRENT_DATE - 360)))
 
 {% if c_type == 'internet' %}
 	AND u.service_type = 3
@@ -70,5 +78,7 @@ WHERE
 	AND t.name != '---БЕЗ ТАРИФА---'  -- игнорируем ОА с МТС
 {% elif c_type == 'ctv' %}
 	AND u.service_type = 10
+{% elif c_type == 'npl' %}
+  AND u.service_type = 2
 {% endif %}
 	AND ac.account_number = :account_number

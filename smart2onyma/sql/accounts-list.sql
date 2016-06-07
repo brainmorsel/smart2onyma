@@ -13,8 +13,8 @@ FROM (
 	JOIN core.account_statuses_enddate status ON child.id = status.account_id AND status.end_date IS NULL
 
 	WHERE
-		(status.status IN (1, 3)
-			OR (status.status IN (4, 5) AND status.start_date > (CURRENT_DATE - 90)))
+		(status.status IN (1, 3, 4)
+			OR (status.status = 5 AND status.start_date > (CURRENT_DATE - 360)))
 		{% if 'person' in filters %}
 		AND ac.person_id IS NOT NULL
 		{% endif %}

@@ -24,11 +24,30 @@ def load_tariffs_map(filename):
         return data
 
 
+def load_tariffs_policy_map(filename):
+    with open(filename) as csvfile:
+        data = {}
+        for row in csv.DictReader(csvfile, delimiter=';'):
+            name = row['Наименование'].replace('HIGH_', '')
+            policy_id = int(row['RESCONNID'])
+            data[name] = policy_id
+        return data
+
+
 def load_groups_map(filename):
     with open(filename) as csvfile:
         data = {}
         for row in csv.DictReader(csvfile, delimiter=';'):
             data[row['Название группы']] = int(row['Группа'])
+        return data
+
+
+def load_sitename_to_usrconnid_map(filename):
+    fieldnames = maps['export-files']['connections-list'][1].split(';')
+    with open(filename) as csvfile:
+        data = {}
+        for row in csv.DictReader(csvfile, fieldnames=fieldnames, delimiter=';'):
+            data[row['SITENAME']] = int(row['USRCONNID'])
         return data
 
 
@@ -44,6 +63,10 @@ def load_profile(filename):
     if 'tariffs-map-file' in profile:
         map_filename = path.join(profile_dir, profile['tariffs-map-file'])
         profile['tariffs-map'] = load_tariffs_map(map_filename)
+
+    if 'tariffs-policy-map-file' in profile:
+        map_filename = path.join(profile_dir, profile['tariffs-policy-map-file'])
+        profile['tariffs-policy-map'] = load_tariffs_policy_map(map_filename)
 
     if 'groups-map-file' in profile:
         map_filename = path.join(profile_dir, profile['groups-map-file'])

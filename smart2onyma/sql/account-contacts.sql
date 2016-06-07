@@ -2,13 +2,13 @@ SELECT DISTINCT
 	 ac.id
 	,i.info
 	,CASE i.type
-		WHEN 1 THEN 'phone-common'  -- обычный
-		WHEN 2 THEN 'phone-common'  -- домашний
-		WHEN 3 THEN 'phone-common'  -- рабочий
+		WHEN 1 THEN 'phone-payment'  -- обычный
+		WHEN 2 THEN 'phone-payment'  -- домашний
+		WHEN 3 THEN 'phone-payment'  -- рабочий
 		WHEN 4 THEN 'notify-fax'    -- факс
-		WHEN 5 THEN 'phone-common'  -- мобильный
-		WHEN 6 THEN 'phone-common'  -- контактный
-		WHEN 1001 THEN 'notify-email'
+		WHEN 5 THEN 'phone-payment'  -- мобильный
+		WHEN 6 THEN 'phone-payment'  -- контактный
+		WHEN 1001 THEN 'extra-email'
 	END as type_name
 
 FROM core.accounts ac

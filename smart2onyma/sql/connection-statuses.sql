@@ -1,7 +1,7 @@
 SELECT
    status.start_date
 	,case status.status
-		when 1 then 'active'  -- новый
+		when 1 then 'inactive'  -- новый
 		when 3 then 'active'  -- активный
 		when 4 then 'suspended' -- приостановленый
 		when 5 then 'suspended' -- заблокированый

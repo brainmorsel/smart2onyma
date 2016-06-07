@@ -2,13 +2,14 @@ SELECT DISTINCT
 	 ac.id
 {% if acc_type == 'person' %}
 	,CASE addr.address_type
-		WHEN 0 THEN 'address-person-reg'
+		WHEN 0 THEN 'address-actual'
 		WHEN 1 THEN 'address-person-live'
 	 END AS address_type
 {% else %}
 	,CASE addr.address_type
-		WHEN 0 THEN 'address-company'
-		WHEN 1 THEN 'address-company-post'
+	    WHEN 0 THEN 'address-actual'
+		WHEN 1 THEN 'address-company'
+		WHEN 2 THEN 'address-company-post'
 	 END AS address_type
 {% endif %}
 	,addr.zip

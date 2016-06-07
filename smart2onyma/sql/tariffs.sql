@@ -8,7 +8,9 @@ SELECT t.id,
        ttl.period,
        ttl.next_tariff_id,
        pr.fee,
-       tc.cnt
+       tc.cnt,
+       t.forperson,
+       t.forcompany
 FROM core.tariffs t
 JOIN core.tariff_base_companies tbc ON tbc.tariff_id = t.id
 LEFT JOIN core.tariff_time_limits ttl ON (t.id = ttl.tariff_id)
@@ -17,6 +19,8 @@ LEFT JOIN core.tariff_time_limits ttl ON (t.id = ttl.tariff_id)
 LEFT JOIN phone.pricelists_enddate pr
 {% elif ctv_tariffs %}
 LEFT JOIN tv.pricelists_enddate pr
+{% elif npl_tariffs %}
+LEFT JOIN npl.pricelists_enddate pr
 {% else %}
 LEFT JOIN iptraf.pricelists_enddate pr
 {% endif %}
@@ -42,6 +46,8 @@ WHERE
   t.service_type in (4, 6)
 {% elif ctv_tariffs %}
 	t.service_type = 10
+{% elif npl_tariffs %}
+  t.service_type = 2
 {% else %}
 -- интернет
   t.service_type = 3

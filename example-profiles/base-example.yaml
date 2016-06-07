@@ -3,12 +3,15 @@ sql-dialect: postgres  # или oracle
 connection-uri: username:password@host/database
 # Директория для создаваемых файлов
 export-data-dir: export_data/
-# Карта тарифов для сопоставления, выгружать отчёт 15874 [TTK API] Группы
+# Карта тарифов для сопоставления, выгружать отчёт 17479 [Байкал] ADM. Загруженные тар.планы
 # Формат CSV " ; UTF-8
 tariffs-map-file: tariffs.csv
-# Карта групп абонентов, выгружать отчёт 17479 [Байкал] ADM. Загруженные тар.планы
+# Карта групп абонентов, выгружать отчёт 15874 [TTK API] Группы
 # Формат CSV " ; UTF-8
 groups-map-file: groups.csv
+# выгружать отчёт 18265
+# Формат CSV " ; UTF-8
+tariffs-policy-map-file: policy.csv
 # ID домена для обонентов, загружаемых этим профилем
 domain-id: 21211
 # ID шаблонных тарифов для соответсвующей категории

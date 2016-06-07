@@ -11,4 +11,5 @@ JOIN core.web_users wu ON (wu.person_id = ac.person_id AND ac.person_id IS NOT N
 
 WHERE
 	wu.status <= 2
+	AND wu.suspend_date IS NULL
 	AND ac.account_number = :account_number

@@ -8,9 +8,10 @@ from decimal import Decimal
 import ipaddress
 from ipaddress import ip_address, ip_network
 from math import log2
+from collections import defaultdict
 
 
-from .mapper import maps
+from .mapper import maps, load_sitename_to_usrconnid_map
 from . import db
 from . import mapper
 
@@ -34,7 +35,10 @@ class Writer:
     def write(self, **items):
         record = []
         for field in self.fields:
-            record.append(str(items.get(field, '')))
+            value = str(items.get(field, ''))
+            if ';' in value:
+                value = '"{0}"'.format(value)
+            record.append(value)
         self.file.write(';'.join(record) + ';\n')
 
 
@@ -141,7 +145,7 @@ class ErrorsCounter:
 
 
 class BillingDataExporter:
-    def __init__(self, profile_file, accs_list=None):
+    def __init__(self, profile_file, accs_list=None, accs_skip=None, tariffs_history_from=None):
         self.profile = mapper.load_profile(profile_file)
         self.db = db.Engine(self.profile['sql-dialect'], self.profile['connection-uri'])
         self.exporter = Exporter(self.profile.get('export-data-dir', 'export_data/'))
@@ -152,13 +156,30 @@ class BillingDataExporter:
 
         self._limit = self.profile.get('limit', 0)
         self._accs_list = accs_list
+        self._accs_skip = set(accs_skip or [])
+        self._tariffs_history_from = tariffs_history_from
         self._dayly_write_off_fix = self.profile.get('dayly-write-off-fix', False)
+
+        self._conn_id_next = 1
+        self.sitename_to_usrconnid_map = {}
+
+    def load_sitename_to_usrconnid_map(self, filename):
+        self.sitename_to_usrconnid_map = load_sitename_to_usrconnid_map(filename)
+        self._conn_id_next = max(self.sitename_to_usrconnid_map.values()) + 1
 
     def add_filter(self, name, **filter_params):
         self.db.tpl_env.globals['filters'][name] = filter_params
 
     def reset_filters(self):
         self.db.tpl_env.globals['filters'] = {}
+
+    def gen_conn_id(self, conn_name):
+        try:
+            return self.sitename_to_usrconnid_map[conn_name]
+        except KeyError:
+            conn_id = self._conn_id_next
+            self._conn_id_next += 1
+            return conn_id
 
     def get_onyma_gid(self, name):
         return self.profile['groups-map'].get(name, None)
@@ -217,6 +238,7 @@ class BillingDataExporter:
     def export_tariffs(self):
         with self.db.connect() as c, \
                 self.exporter.open('tariffs-list') as t, \
+                self.exporter.open('tariffs-policy') as t_pol, \
                 self.exporter.open('tariffs-prices') as tp:
 
             def write_tariff(r, onyma_tpl_id, service_id):
@@ -251,15 +273,36 @@ class BillingDataExporter:
             # регулярное выражение для определения ADSL тарифов
             adsl_re = re.compile(self.profile.get('tariffs-adsl-match-re', '.*ADSL.*'))
             for r in c.execute('tariffs.sql'):
+                if r.forcompany:
+                    onyma_tpl_id = self.get_onyma_tpl_tarrif_id('internet-company')
+                elif r.forperson:
+                    onyma_tpl_id = self.get_onyma_tpl_tarrif_id('internet-person')
+                else:
+                    onyma_tpl_id = self.get_onyma_tpl_tarrif_id('internet-person')
+
                 if adsl_re.match(r.name):
                     service_id = self.get_onyma_service_id('fee-internet-adsl')
                 else:
                     service_id = self.get_onyma_service_id('fee-internet')
-                write_tariff(
-                    r,
-                    self.get_onyma_tpl_tarrif_id('internet'),
-                    service_id
-                )
+
+                write_tariff(r, onyma_tpl_id, service_id)
+
+                if 'tariffs-policy-map' in self.profile:
+                    for p in c.execute('tariff-policy.sql', tariff_id=r.id):
+                        policy_name = p.value.replace('ssg-account-info=A', '')
+                        policy_id = 0
+                        try:
+                            policy_id = self.profile['tariffs-policy-map'][policy_name]
+                        except KeyError:
+                            print('WARNING: no mapping for policy: {0}'.format(policy_name))
+
+                        t_pol.write(
+                            START_DATE=r.create_date.strftime('%d.%m.%Y'),
+                            OLD_TMID=r.id,
+                            NAME=r.name,
+                            TMID='',
+                            POLID=policy_id
+                        )
 
             print('loading phone tariffs...')
             for r in c.execute('tariffs.sql', phone_tariffs=True):
@@ -275,6 +318,13 @@ class BillingDataExporter:
                     r,
                     self.get_onyma_tpl_tarrif_id('ctv'),
                     self.get_onyma_service_id('fee-ctv')
+                )
+            print('loading npl tariffs...')
+            for r in c.execute('tariffs.sql', npl_tariffs=True):
+                write_tariff(
+                    r,
+                    self.get_onyma_tpl_tarrif_id('npl'),
+                    self.get_onyma_service_id('fee-channel')
                 )
             print('done!')
 
@@ -299,8 +349,11 @@ class BillingDataExporter:
             policy_list = {}
             for r in c.execute('policy-items.sql'):
                 if r.id not in policy_list:
-                    policy_list[r.id] = {'name': r.name, 'id': r.id, 'items': []}
-                policy_list[r.id]['items'].append((r.attribute, r.value))
+                    policy_list[r.id] = {
+                        'name': r.name,
+                        'id': r.id,
+                        'items': defaultdict(list)}
+                policy_list[r.id]['items'][r.attribute].append(r.value)
 
             resource_id = self.get_onyma_resource_id('internet-policy')
             date_start = datetime.now().strftime('%d.%m.%Y')
@@ -317,8 +370,9 @@ class BillingDataExporter:
                 )
                 f_cp.write(conn_id, 'policy-CoA-type', 'HIGH')
                 f_cp.write(conn_id, 'policy-name', p['name'])
-                for name, value in p['items']:
-                    f_cp.write(conn_id, name, value)
+                for key, values in p['items'].items():
+                    for idx, val in enumerate(values, start=1):
+                        f_cp.write(conn_id, key, val, idx)
 
     # Большущая страшная функция для выгрузки всего, что можно
     def export_one_by_one(self, debug=False):
@@ -330,6 +384,9 @@ class BillingDataExporter:
                 self.exporter.open('connections-list') as f_cl, \
                 self.exporter.open('connections-status-history') as f_chist, \
                 self.exporter.open_connection_props() as f_cp, \
+                self.exporter.open('tariffs-personal') as f_tariffs_personal, \
+                self.exporter.open('tariffs-history') as f_tariffs_history, \
+                self.exporter.open('promised-payments') as f_promised_payments, \
                 self.exporter.open('balances-list') as f_bl, \
                 self.exporter.open('payments-list') as f_pay:
 
@@ -346,6 +403,9 @@ class BillingDataExporter:
             # выгружает данные для одного лицевого
             def export_one(acc_num):
                 r = c.execute('account-base-info.sql', account_number=acc_num).fetchone()
+                if not r:
+                    _errors.error(acc_num, 'no such account')
+                    return
 
                 gid = self.get_onyma_gid(r.group_name)
                 if gid is None:
@@ -385,6 +445,7 @@ class BillingDataExporter:
                 balance_correction += export_connections(acc_num, 'lk')
                 balance_correction += export_connections(acc_num, 'internet')
                 balance_correction += export_connections(acc_num, 'ctv')
+                balance_correction += export_connections(acc_num, 'npl')
 
                 export_balance(r, balance_correction)
                 export_payments(acc_num)
@@ -393,6 +454,9 @@ class BillingDataExporter:
 
             def export_person_info(acc_num):
                 r = c.execute('account-person-info.sql', account_number=acc_num).fetchone()
+                if not r:
+                    _errors.error(acc_num, 'export_person_info')
+                    return
                 if r.birth_day:
                     birth_day = r.birth_day.strftime('%d.%m.%Y')
                     f_attr.write(r.id, birth_day, 'birth-day')
@@ -421,8 +485,10 @@ class BillingDataExporter:
                     _errors.error(acc_num, 'export_company_info')
                     return
 
-                co_name = r.cpt_short + ' ' + r.co_name
-                co_name_full = r.cpt_full + ' ' + r.law_name
+                #co_name = r.cpt_short + ' ' + r.co_name
+                #co_name_full = r.cpt_full + ' ' + r.law_name
+                co_name = r.co_name
+                co_name_full = r.law_name
                 f_attr.write(r.id, co_name, 'name')
                 f_attr.write(r.id, co_name_full, 'law-name')
                 f_attr.write(r.id, r.inn, 'inn')
@@ -434,7 +500,7 @@ class BillingDataExporter:
 
             def export_contacts(acc_num):
                 for r in c.execute('account-contacts.sql', account_number=acc_num):
-                    if r.type_name == 'notify-email':
+                    if r.type_name == 'extra-email':
                         f_attr.write(r.id, r.info, r.type_name)
                     else:
                         f_attr.write(r.id, norm_phone_number(r.info), r.type_name)
@@ -448,10 +514,10 @@ class BillingDataExporter:
                     f_attr.write(r.id, r.num, 'house', r.address_type)
                     f_attr.write(r.id, r.building or r.block, 'block', r.address_type)
                     f_attr.write(r.id, r.flat, 'flat', r.address_type)
-                    f_attr.write(r.id, r.entrance, 'entrance', r.address_type)
-                    f_attr.write(r.id, r.floor, 'floor', r.address_type)
+                    #f_attr.write(r.id, r.entrance, 'entrance', r.address_type)
+                    #f_attr.write(r.id, r.floor, 'floor', r.address_type)
                     # В ониме нет (пока?) таких атрибутов
-                    f_attr.write(r.id, r.postbox, None, r.address_type)
+                    #f_attr.write(r.id, r.postbox, None, r.address_type)
 
             def export_connections(acc_num, c_type):
                 balance_correction = 0
@@ -468,6 +534,8 @@ class BillingDataExporter:
                 for idx in range(len(res)):
                     r = res[idx]
                     resource_id = None
+                    remark = (r.description or '').replace('\n', ' ').replace('\r', '').replace(';', '.')
+                    remark = remark[:250]
 
                     if c_type == 'lk':
                         tariff_id = self.get_onyma_tech_tariff_id()
@@ -478,38 +546,59 @@ class BillingDataExporter:
 
                     if tariff_id is None:
                         _errors.error(acc_num, 'no tariff map for {0}'.format(r.tariff_id))
+                        continue
 
                     if c_type == 'lk':
                         name_prefix = 'lc'
-                        resource_id = self.get_onyma_resource_id('lk-access')
-                        export_connections_lk_props(r)
                     elif c_type == 'internet':
-                        if self._dayly_write_off_fix and r.status == 'active':
-                            balance_correction = - r.tariff_fee / days_in_month
-
                         name_prefix = 'i'
-                        if r.conn_type == 'ipoe':
-                            resource_id = self.get_onyma_resource_id('internet-connection-net')
-                        else:
-                            resource_id = self.get_onyma_resource_id('internet-connection')
-                        export_connections_internet_props(r)
                     elif c_type == 'phone':
                         name_prefix = 'tel'
-                        resource_id = self.get_onyma_resource_id('phone-number')
-                        export_connections_phone_props(r)
                     elif c_type == 'ctv':
                         name_prefix = 'tv'
-                        resource_id = self.get_onyma_resource_id('ctv-connection')
+                    elif c_type == 'npl':
+                        name_prefix = 'npl'
 
                     if len(res) > 1 and idx > 0:
                         conn_name = '{0}{1}_{2}'.format(name_prefix, acc_num, idx)
                     else:
                         conn_name = '{0}{1}'.format(name_prefix, acc_num)
 
+                    usrconnid = self.gen_conn_id(conn_name)
+
+                    login = ''
+                    if c_type == 'lk':
+                        resource_id = self.get_onyma_resource_id('lk-access')
+                        export_connections_lk_props(r, usrconnid)
+                    elif c_type == 'internet':
+                        if self._dayly_write_off_fix and r.status == 'active':
+                            balance_correction = - r.tariff_fee / days_in_month
+                        if r.conn_type == 'ipoe':
+                            resource_id = self.get_onyma_resource_id('internet-connection-net')
+                        else:
+                            login = r.login
+                            resource_id = self.get_onyma_resource_id('internet-connection')
+                        export_connections_internet_props(r, usrconnid)
+                        export_internet_services(r, conn_name, tariff_id, usrconnid)
+                    elif c_type == 'phone':
+                        resource_id = self.get_onyma_resource_id('phone-number')
+                        export_connections_phone_props(r, usrconnid)
+                    elif c_type == 'ctv':
+                        resource_id = self.get_onyma_resource_id('ctv-connection')
+                    elif c_type == 'npl':
+                        resource_id = self.get_onyma_resource_id('internet-npl')
+                        comm_parts = []
+                        if r.platform1:
+                            comm_parts.append(r.platform1)
+                        if r.platform2:
+                            comm_parts.append(r.platform2)
+                        if comm_parts:
+                            # f_cp.write(conn_id, 'internet-npl-commentary', ' - '.join(comm_parts))
+                            remark = ' - '.join(comm_parts)
+                    export_connections_status_history(r.conn_id, usrconnid, login)
+
                     date_start = datetime.now().strftime('%d.%m.%Y')
 
-                    remark = (r.description or '').replace('\n', ' ').replace('\r', '').replace(';', '.')
-                    remark = remark[:250]
                     f_cn.write(
                         ABONID=r.account_id,
                         DOMAINID=self.get_onyma_domain_id(),
@@ -518,49 +607,91 @@ class BillingDataExporter:
                     )
 
                     f_cl.write(
-                        USRCONNID=r.conn_id,
+                        USRCONNID=usrconnid,
                         ABONID=r.account_id,
                         SITENAME=conn_name,
                         RESID=resource_id,
                         TMID=tariff_id,
                         BEGDATE=date_start,
                         STATUS=status_id,
-                        SHARED=0
+                        SHARED=0,
+                        REMARK=r.conn_id  # оригинальный ID объекта авторизации в биллинге
                     )
+
+                    if self._tariffs_history_from and c_type != 'lk':
+                        for rr in c.execute('tariffs-history.sql', conn_id=r.conn_id, date_from=self._tariffs_history_from):
+                            date_now = datetime.now().strftime('%d.%m.%Y %H:%M')
+                            date_start = rr.start_date.strftime('%d.%m.%Y %H:%M')
+                            tariff_id = self.get_onyma_tariff_id(rr.tariff_id)
+                            if tariff_id is None:
+                                _errors.error(acc_num, 'no tariff map for {0}'.format(rr.tariff_id))
+                                continue
+                            f_tariffs_history.write(
+                                TMID=tariff_id,
+                                DATE_START=date_start,
+                                USRCONNID=usrconnid,
+                                DATE=date_now,
+                                SITENAME=conn_name
+                            )
+
+                    if self.profile['discounts-service-mapping']:
+                        for rr in c.execute('discounts.sql', conn_id=r.conn_id):
+                            onyma_srvid = self.profile['discounts-service-mapping'].get(rr.discount_id)
+                            if onyma_srvid is None:
+                                _errors.error(acc_num, 'no discount map for {0}'.format(rr.discount_id))
+                                continue
+                            f_tariffs_personal.write(
+                                TMID=tariff_id,
+                                ABONID=r.account_id,
+                                SITENAME=conn_name,
+                                SERVID=onyma_srvid,
+                                COST=0,
+                                COEF=1.0,
+                                CCNTR=1.0,
+                                MDATE=rr.start_date.strftime('%d.%m.%Y %H:%M:%S'),
+                                USRCONNID=usrconnid,
+                                REMARK=rr.description
+                            )
+
                 return balance_correction
 
-            def export_connections_internet_props(r):
-                if r.conn_type == 'pppoe':
-                    # пришлось сюда засунуть сохранение статусов объекта авторизации
-                    tz = timezone(timedelta(hours=9))  # TODO: make profile option
-                    first_day = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=tz)
-                    last_status = None  # до начала тукещего месяца
+            def export_connections_status_history(conn_id, usrconnid, login=''):
+                # пришлось сюда засунуть сохранение статусов объекта авторизации
+                tz = timezone(timedelta(hours=9))  # TODO: make profile option
+                first_day = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=tz)
+                last_status = None  # до начала тукещего месяца
 
-                    def write_status(date, status):
-                        status_date = date.astimezone(tz).strftime('%d.%m.%Y %H:%M:%S')
-                        f_chist.write(
-                            LOGIN=r.login,
-                            MDATE=status_date,
-                            STATUS=self.get_onyma_status_id(status)
-                        )
+                def write_status(date, status):
+                    if status is None:
+                        return
+                    status_date = date.astimezone(tz).strftime('%d.%m.%Y %H:%M:%S')
+                    f_chist.write(
+                        LOGIN=login,
+                        MDATE=status_date,
+                        STATUS=self.get_onyma_status_id(status),
+                        USRCONNID=usrconnid
+                    )
 
-                    for h in c.execute('connection-statuses.sql', conn_id=r.conn_id):
-                        # Тут мы отсекаем все статусы до начала текущего месяца
-                        # попутно сохраняя последний из них
-                        if h.start_date < first_day:
-                            last_status = h.status
-                            continue
-                        elif last_status is not None:
-                            write_status(first_day, last_status)
-                            last_status = None
-                        write_status(h.start_date, h.status)
-                    # вывести статус на начало месяца, если бельше статусов нет?
-                    if last_status is not None:
+                for h in c.execute('connection-statuses.sql', conn_id=conn_id):
+                    # Тут мы отсекаем все статусы до начала текущего месяца
+                    # попутно сохраняя последний из них
+                    if h.start_date < first_day:
+                        last_status = h.status
+                        continue
+                    elif last_status is not None:
                         write_status(first_day, last_status)
+                        last_status = None
+                    write_status(h.start_date, h.status)
+                # вывести статус на начало месяца, если бельше статусов нет?
+                if last_status is not None:
+                    write_status(first_day, last_status)
 
-                    f_cp.write(r.conn_id, 'internet-login', r.login)
-                    f_cp.write(r.conn_id, 'internet-password', r.password)
-                    f_cp.write(r.conn_id, 'cypher', 'PLAIN')
+
+            def export_connections_internet_props(r, conn_id):
+                if r.conn_type == 'pppoe':
+                    f_cp.write(conn_id, 'internet-login', r.login)
+                    f_cp.write(conn_id, 'internet-password', r.password)
+                    f_cp.write(conn_id, 'cypher', 'PLAIN')
 
                     if r.start_ip == r.end_ip:
                         ip = r.start_ip or 0
@@ -570,20 +701,20 @@ class BillingDataExporter:
                             # магические константы, смысл приблизительно такой:
                             # к подключению привязывается ресурс Динамический IP
                             res_id = self.get_onyma_resource_id('dynamic-ip-addr')
-                            f_cp.write(r.conn_id, 0, res_id, 10)
+                            f_cp.write(conn_id, 0, res_id, 10)
                         else:
                             # статический
                             # магические константы, смысл приблизительно такой:
                             # к подключению привязывается ресурс Статический IP
                             res_id = self.get_onyma_resource_id('static-ip-addr')
-                            f_cp.write(r.conn_id, 0, res_id, 10)
+                            f_cp.write(conn_id, 0, res_id, 10)
 
                             ip_addr = ip_address(ip)
                             pool_name = self.get_onyma_static_ip_pool(ip_addr)
                             if not pool_name:
                                 _errors.error(r.account_number, 'no ip pool for {0}'.format(ip_addr))
-                            f_cp.write(r.conn_id, 'static-ip-pool-name', pool_name)
-                            f_cp.write(r.conn_id, 'static-ip-addr', str(ip_addr))
+                            f_cp.write(conn_id, 'static-ip-pool-name', pool_name)
+                            f_cp.write(conn_id, 'static-ip-addr', str(ip_addr))
                     else:
                         # подсеть, на PPPoE этого не должно быть
                         print('OH! Shit! subnet on PPPoE for account: ' + r.account_number)
@@ -600,29 +731,65 @@ class BillingDataExporter:
                     if not pool_name:
                         _errors.error(r.account_number, 'no ip pool for {0}'.format(str(network)))
 
-                    f_cp.write(r.conn_id, 'netflow-collector', r.router)
-                    f_cp.write(r.conn_id, 'static-net-pool-name', pool_name)
-                    f_cp.write(r.conn_id, 'static-net', network)
+                    f_cp.write(conn_id, 'netflow-collector', r.router)
+                    f_cp.write(conn_id, 'static-net-pool-name', pool_name)
+                    f_cp.write(conn_id, 'static-net', network)
                 else:
                     print('OH! Shit! unexpected connection type for account: ' + r.account_number)
 
-            def export_connections_lk_props(r):
-                f_cp.write(r.conn_id, 'lk-login', r.login)
-                f_cp.write(r.conn_id, 'lk-password', r.password)
-                f_cp.write(r.conn_id, 'cypher', 'MD5MD5')  # два раза MD5
+            def export_connections_lk_props(r, conn_id):
+                f_cp.write(conn_id, 'lk-login', r.login)
+                f_cp.write(conn_id, 'lk-password', r.password)
+                f_cp.write(conn_id, 'cypher', 'MD5MD5')  # два раза MD5
 
-            def export_connections_phone_props(r):
+            def export_connections_phone_props(r, conn_id):
                 p = phone_pools.find(r.phone_number)
                 series = '{0}/{1}@{2}'.format(p.start_ani, p.size, p.zone_code)
                 ats_name = self.get_onyma_ats_name(r.ats_name)
 
-                f_cp.write(r.conn_id, 'phone-ats-name', ats_name)
-                f_cp.write(r.conn_id, 'phone-zone-code', p.zone_code)
-                f_cp.write(r.conn_id, 'phone-series', series)
-                f_cp.write(r.conn_id, 'phone-number', r.phone_number)
+                f_cp.write(conn_id, 'phone-ats-name', ats_name)
+                f_cp.write(conn_id, 'phone-zone-code', p.zone_code)
+                f_cp.write(conn_id, 'phone-series', series)
+                f_cp.write(conn_id, 'phone-number', r.phone_number)
+
+            def export_internet_services(r, sitename, tmid, usrconnid):
+                "Экспорт периодических услуг на объектах авторизации интернета"
+                if r.conn_id not in internet_periodic_services:
+                    return
+
+                for srv in internet_periodic_services[r.conn_id]:
+                    try:
+                        onyma_srvid = self.profile['periodic-service-mapping'][srv.id]
+                    except KeyError:
+                        _errors.error(r.account_number, 'no mapping for service id {0} ("{1}")'.format(srv.id, srv.name))
+                        continue
+                    cost = srv.price or srv.count_price
+                    cost = (cost * Decimal(1.18)).quantize(Decimal('1.00'))
+                    f_tariffs_personal.write(
+                        TMID=tmid,
+                        ABONID=r.account_id,
+                        SITENAME=sitename,
+                        SERVID=onyma_srvid,
+                        COST=cost,
+                        COEF=srv.amount,
+                        CCNTR=1.0,
+                        MDATE=srv.status_date.strftime('%d.%m.%Y %H:%M:%S'),
+                        USRCONNID=usrconnid,
+                        SERV_ALIAS=srv.name
+                    )
 
             def export_balance(r, balance_correction):
-                promised = Decimal(promised_payments.get(r.account_number, 0))
+                promised = Decimal('0.00')
+                for pp in promised_payments[r.account_number]:
+                    promised += Decimal(pp.amount)
+                    date_now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
+                    f_promised_payments.write(
+                        ABONID=r.id,
+                        DOGCODE=r.account_number,
+                        CREDIT_SUM=Decimal(pp.amount),
+                        ENDDATE=pp.expire_date.strftime('%d.%m.%Y %H:%M:%S'),
+                        DATE=date_now
+                    )
                 balance = Decimal(r.child_balance) - promised + Decimal(balance_correction)
                 date = r.now.strftime('%d.%m.%Y %H:%M:%S')
                 f_bl.write(
@@ -633,9 +800,10 @@ class BillingDataExporter:
 
             def export_payments(acc_num):
                 for r in c.execute('account-payments.sql', account_number=acc_num):
+                    date = r.payment_date.strftime('%d.%m.%Y %H:%M:%S')
                     f_pay.write(
                         DOGCODE=r.account_number,
-                        MDATE=r.payment_date,
+                        MDATE=date,
                         SUM=r.sum
                     )
 
@@ -654,9 +822,9 @@ class BillingDataExporter:
                 cnt_estimate = estimate_count('accounts-list.sql')
 
             print('preload promised payments...')
-            promised_payments = {}
+            promised_payments = defaultdict(list)
             for r in c.execute('account-active-promised-paymens.sql'):
-                promised_payments[r.account_number] = r.amount
+                promised_payments[r.account_number].append(r)
 
             if self._accs_list:
                 accounts = self._accs_list
@@ -666,8 +834,18 @@ class BillingDataExporter:
                 for r in c.execute('accounts-list.sql'):
                     accounts.append(r.account_number)
 
+            print('preload periodic services...')
+            internet_periodic_services = {}
+            for r in c.execute('service-for-internet.sql'):
+                try:
+                    internet_periodic_services[r.conn_id].append(r)
+                except KeyError:
+                    internet_periodic_services[r.conn_id] = [r, ]
+
             cnt_processed = 0
             for account_number in accounts:
+                if account_number in self._accs_skip:
+                    continue
                 try:
                     export_one(account_number)
                     cnt_processed += 1
