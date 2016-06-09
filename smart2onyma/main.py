@@ -9,13 +9,14 @@ def main():
 
 
 @main.command()
-@click.option('--append', default=False, help='Append new data to existed export')
+@click.option('--append', default=False, is_flag=True, help='Append new data to existed export')
 @click.option('--accs-list-file')
 @click.option('--prev-conn-file')  # Файл conn.csv с предыдущей выгрзки, для использования USRCONNID
 @click.option('--accs-skip-file')  # список лицевых, которые нужно пропустить
 @click.option('--tariffs-history-from')  # дата, с которой выгружать историю тарифов yyyy-mm-dd
+@click.option('--data-items', help='accounts, attributes, connections, balances, payments')
 @click.argument('profiles', nargs=-1)
-def clientdata(append, profiles, accs_list_file, prev_conn_file, accs_skip_file, tariffs_history_from):
+def clientdata(append, profiles, accs_list_file, prev_conn_file, accs_skip_file, tariffs_history_from, data_items):
     accs_list = None
     if accs_list_file:
         accs_list = []
@@ -35,6 +36,8 @@ def clientdata(append, profiles, accs_list_file, prev_conn_file, accs_skip_file,
                 )
         if not append:
             bde.clear_output_files()
+        if data_items:
+            bde.set_export_data_items(data_items.split(','))
         if prev_conn_file:
             bde.load_sitename_to_usrconnid_map(prev_conn_file)
         bde.export_one_by_one()
@@ -42,7 +45,7 @@ def clientdata(append, profiles, accs_list_file, prev_conn_file, accs_skip_file,
 
 
 @main.command()
-@click.option('--append', default=False, help='Append new data to existed export')
+@click.option('--append', default=False, is_flag=True, help='Append new data to existed export')
 @click.argument('profiles', nargs=-1)
 def tariffs(append, profiles):
     for profile in profiles:
@@ -54,7 +57,7 @@ def tariffs(append, profiles):
 
 
 @main.command()
-@click.option('--append', default=False, help='Append new data to existed export')
+@click.option('--append', default=False, is_flag=True, help='Append new data to existed export')
 @click.argument('profiles', nargs=-1)
 def tariffs_srv_credit(append, profiles):
     for profile in profiles:
@@ -74,7 +77,7 @@ def show_base_companies(profiles):
 
 
 @main.command()
-@click.option('--append', default=False, help='Append new data to existed export')
+@click.option('--append', default=False, is_flag=True, help='Append new data to existed export')
 @click.argument('profiles', nargs=-1)
 def policy(append, profiles):
     for profile in profiles:

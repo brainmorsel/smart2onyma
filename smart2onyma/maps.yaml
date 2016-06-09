@@ -31,7 +31,7 @@ export-files:
         - DATE;DOGCODE;BALANCE;COMMENTARY
     tariffs-personal:
         - dogserv.csv
-        - ABONID;SITENAME;SERVID;TMID;COST;COEF;MDATE;USRCONNID;REMARK;CCNTR;SERV_ALIAS
+        - ABONID;SITENAME;SERVID;TMID;COST;COEF;MDATE;USRCONNID;REMARK;CCNTR;SERV_ALIAS;ENDDATE
     payments-list:
         - payments.csv
         - DOGCODE;MDATE;SUM;PPID;REMARK
@@ -58,8 +58,10 @@ onyma:
         unlimited: 25              # Неограниченный кредит
     status:
         active: 0
-        inactive: 1
-        suspended: 3
+        inactive: 1  # этот статус не ставится нигде
+        paused-by-system: 2
+        paused-by-operator: 3
+        deleted: 4
     attributes:
         # Атрибуты договора:
         agreement-comment: 340  # Комментарии к договору

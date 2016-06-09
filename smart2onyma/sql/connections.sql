@@ -3,10 +3,14 @@ SELECT DISTINCT
 	,ac.account_number
 	,child.id as conn_id
 	,case status.status
-		when 1 then 'inactive'  -- новый
+{% if c_type == 'ctv' %}
+		when 1 then 'paused-by-operator'  -- новый включают вручную после подключения
+{% else %}
+		when 1 then 'active'  -- новый включается автоматически
+{% endif %}
 		when 3 then 'active'  -- активный
-		when 4 then 'suspended' -- приостановленый
-		when 5 then 'suspended' -- заблокированый
+		when 4 then 'paused-by-system' -- приостановленый
+		when 5 then 'paused-by-operator' -- заблокированый
 	 end as status
 	,sst.name as subservice
 	,u.name as conn_name

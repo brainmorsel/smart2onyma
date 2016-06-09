@@ -20,7 +20,10 @@ def load_tariffs_map(filename):
     with open(filename) as csvfile:
         data = {}
         for row in csv.DictReader(csvfile, delimiter=';'):
-            data[int(row['OLD_TMID'])] = int(row['newtmid'])
+            try:
+                data[int(row['Старый ТП'])] = int(row['Новый ТП'])
+            except ValueError:
+                pass
         return data
 
 

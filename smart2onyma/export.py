@@ -47,6 +47,8 @@ class AccountAttrsWriter(Writer):
         attrs = maps['onyma']['attributes']
         attr_id = attrs.get(attr_name, None)
         sup_attr_id = attrs.get(sup_attr_name, '')
+        if isinstance(attr_value, list):
+            attr_value = ', '.join(attr_value)
 
         if attr_id and attr_value and len(str(attr_value).strip()) > 0:
             attr_value = str(attr_value).strip()
@@ -162,6 +164,12 @@ class BillingDataExporter:
 
         self._conn_id_next = 1
         self.sitename_to_usrconnid_map = {}
+
+        # какие данные выгружать
+        self.export_items = set(['accounts', 'attributes', 'connections', 'balances', 'payments'])
+
+    def set_export_data_items(self, items):
+        self.export_items = set(items)
 
     def load_sitename_to_usrconnid_map(self, filename):
         self.sitename_to_usrconnid_map = load_sitename_to_usrconnid_map(filename)
@@ -407,48 +415,53 @@ class BillingDataExporter:
                     _errors.error(acc_num, 'no such account')
                     return
 
-                gid = self.get_onyma_gid(r.group_name)
-                if gid is None:
-                    _errors.no_group(acc_num, r.group_name)
+                if 'accounts' in self.export_items:
+                    gid = self.get_onyma_gid(r.group_name)
+                    if gid is None:
+                        _errors.no_group(acc_num, r.group_name)
 
-                if r.acc_type == 'person':
-                    tsid = self.get_onyma_tsid('person')
-                    csid = self.get_onyma_csid('prepay')
-                else:  # company
-                    tsid = self.get_onyma_tsid('std')
-                    csid = self.get_onyma_csid('unlimited')
+                    if r.acc_type == 'person':
+                        tsid = self.get_onyma_tsid('person')
+                        csid = self.get_onyma_csid('prepay')
+                    else:  # company
+                        tsid = self.get_onyma_tsid('std')
+                        csid = self.get_onyma_csid('unlimited')
 
-                f_acc.write(
-                    ABONID=r.id,
-                    GID=gid,
-                    TSID=tsid,
-                    CSID=csid,
-                    DOGCODE=acc_num,
-                    DOGDATE=r.create_date.strftime('%d.%m.%Y'),
-                    UTID=self.get_onyma_utid(r.acc_type)
-                )
+                    f_acc.write(
+                        ABONID=r.id,
+                        GID=gid,
+                        TSID=tsid,
+                        CSID=csid,
+                        DOGCODE=acc_num,
+                        DOGDATE=r.create_date.strftime('%d.%m.%Y'),
+                        UTID=self.get_onyma_utid(r.acc_type)
+                    )
 
-                f_attr.write(r.id, r.notification_email, 'notify-email')
-                f_attr.write(r.id, norm_phone_number(r.notification_sms), 'notify-sms')
-                f_attr.write(r.id, norm_phone_number(r.notification_fax), 'notify-fax')
-                f_attr.write(r.id, r.manager, 'manager')
+                if 'attributes' in self.export_items:
+                    f_attr.write(r.id, r.notification_email, 'notify-email')
+                    f_attr.write(r.id, norm_phone_number(r.notification_sms), 'notify-sms')
+                    f_attr.write(r.id, norm_phone_number(r.notification_fax), 'notify-fax')
+                    f_attr.write(r.id, r.manager, 'manager')
 
-                if r.acc_type == 'person':
-                    export_person_info(acc_num)
-                else:  # company
-                    export_company_info(acc_num)
+                    if r.acc_type == 'person':
+                        export_person_info(acc_num)
+                    else:  # company
+                        export_company_info(acc_num)
 
-                export_contacts(acc_num)
-                export_addresses(acc_num, r.acc_type)
+                    export_contacts(acc_num)
+                    export_addresses(acc_num, r.acc_type)
 
-                balance_correction = 0
-                balance_correction += export_connections(acc_num, 'lk')
-                balance_correction += export_connections(acc_num, 'internet')
-                balance_correction += export_connections(acc_num, 'ctv')
-                balance_correction += export_connections(acc_num, 'npl')
+                if 'connections' in self.export_items:
+                    balance_correction = 0
+                    balance_correction += export_connections(acc_num, 'lk')
+                    balance_correction += export_connections(acc_num, 'internet')
+                    balance_correction += export_connections(acc_num, 'ctv')
+                    balance_correction += export_connections(acc_num, 'npl')
 
-                export_balance(r, balance_correction)
-                export_payments(acc_num)
+                if 'balances' in self.export_items:
+                    export_balance(r, balance_correction)
+                if 'payments' in self.export_items:
+                    export_payments(acc_num)
 
                 return True
 
@@ -499,11 +512,16 @@ class BillingDataExporter:
                 f_attr.write(r.id, r.eisup, 'eisup')
 
             def export_contacts(acc_num):
+                contacts = defaultdict(list)
+                account_id = None
                 for r in c.execute('account-contacts.sql', account_number=acc_num):
+                    account_id = r. id
                     if r.type_name == 'extra-email':
-                        f_attr.write(r.id, r.info, r.type_name)
+                        contacts[r.type_name].append(r.info)
                     else:
-                        f_attr.write(r.id, norm_phone_number(r.info), r.type_name)
+                        contacts[r.type_name].append(norm_phone_number(r.info))
+                for attr_name, attr_values in contacts.items():
+                    f_attr.write(r.id, attr_values, attr_name)
 
             def export_addresses(acc_num, acc_type):
                 for r in c.execute('account-addresses.sql', account_number=acc_num, acc_type=acc_type):
@@ -617,6 +635,8 @@ class BillingDataExporter:
                         SHARED=0,
                         REMARK=r.conn_id  # оригинальный ID объекта авторизации в биллинге
                     )
+
+                    export_service_credit(r, conn_name, tariff_id, usrconnid)
 
                     if self._tariffs_history_from and c_type != 'lk':
                         for rr in c.execute('tariffs-history.sql', conn_id=r.conn_id, date_from=self._tariffs_history_from):
@@ -778,6 +798,33 @@ class BillingDataExporter:
                         SERV_ALIAS=srv.name
                     )
 
+            def export_service_credit(r, sitename, tmid, usrconnid):
+                if r.conn_id in credit_services:
+                    for item in credit_services[r.conn_id]:
+                        try:
+                            onyma_srvid = self.profile['credit-service-mapping'][item.type_id]
+                        except KeyError:
+                            _errors.error(r.account_number, 'no mapping for credit service id {0} ("{1}")'.format(item.type_id, item.name))
+                            continue
+                        cost = item.credit_monthly_payment
+                        #cost = (cost * Decimal(1.18)).quantize(Decimal('1.00'))
+                        start_date = item.start_date.strftime('%d.%m.%Y %H:%M:%S')
+                        end_date = item.end_date.strftime('%d.%m.%Y %H:%M:%S')
+
+                        f_tariffs_personal.write(
+                            TMID=tmid,
+                            ABONID=r.account_id,
+                            SITENAME=sitename,
+                            SERVID=onyma_srvid,
+                            COST=cost,
+                            COEF=1.0,
+                            CCNTR=1.0,
+                            MDATE=start_date,
+                            USRCONNID=usrconnid,
+                            SERV_ALIAS=item.name,
+                            ENDDATE=end_date
+                        )
+
             def export_balance(r, balance_correction):
                 promised = Decimal('0.00')
                 for pp in promised_payments[r.account_number]:
@@ -806,9 +853,6 @@ class BillingDataExporter:
                         MDATE=date,
                         SUM=r.sum
                     )
-
-            def export_service_credit(acc_num):
-                pass
 
             print('loading phone number pools...')
             phone_pools = PhoneNumberPools()
@@ -841,6 +885,14 @@ class BillingDataExporter:
                     internet_periodic_services[r.conn_id].append(r)
                 except KeyError:
                     internet_periodic_services[r.conn_id] = [r, ]
+
+            print('preload credit services...')
+            credit_services = {}
+            for r in c.execute('service-with-credit.sql'):
+                try:
+                    credit_services[r.conn_id].append(r)
+                except KeyError:
+                    credit_services[r.conn_id] = [r, ]
 
             cnt_processed = 0
             for account_number in accounts:
