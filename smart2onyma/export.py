@@ -451,8 +451,8 @@ class BillingDataExporter:
                     export_contacts(acc_num)
                     export_addresses(acc_num, r.acc_type)
 
+                balance_correction = 0
                 if 'connections' in self.export_items:
-                    balance_correction = 0
                     balance_correction += export_connections(acc_num, 'lk')
                     balance_correction += export_connections(acc_num, 'internet')
                     balance_correction += export_connections(acc_num, 'ctv')
