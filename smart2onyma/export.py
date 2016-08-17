@@ -583,6 +583,7 @@ class BillingDataExporter:
                         conn_name = '{0}{1}'.format(name_prefix, acc_num)
 
                     usrconnid = self.gen_conn_id(conn_name)
+                    shared = 0
 
                     login = ''
                     if c_type == 'lk':
@@ -603,6 +604,8 @@ class BillingDataExporter:
                         export_connections_phone_props(r, usrconnid)
                     elif c_type == 'ctv':
                         resource_id = self.get_onyma_resource_id('ctv-connection')
+                        shared = 1
+                        export_connections_ctv_props(r, usrconnid)
                     elif c_type == 'npl':
                         resource_id = self.get_onyma_resource_id('internet-npl')
                         comm_parts = []
@@ -632,7 +635,7 @@ class BillingDataExporter:
                         TMID=tariff_id,
                         BEGDATE=date_start,
                         STATUS=status_id,
-                        SHARED=0,
+                        SHARED=shared,
                         REMARK=r.conn_id  # оригинальный ID объекта авторизации в биллинге
                     )
 
@@ -706,6 +709,9 @@ class BillingDataExporter:
                 if last_status is not None:
                     write_status(first_day, last_status)
 
+            def export_connections_ctv_props(r, conn_id):
+                for login in iptv_ppoe_logins[r.account_id]:
+                    f_cp.write(conn_id, 'internet-login', login)
 
             def export_connections_internet_props(r, conn_id):
                 if r.conn_type == 'pppoe':
@@ -858,6 +864,11 @@ class BillingDataExporter:
             phone_pools = PhoneNumberPools()
             for r in c.execute('phone-number-pools.sql'):
                 phone_pools.add(r.start_ani, r.end_ani, r.zone_code, r.comments)
+
+            print('loading ppoe logins for iptv...')
+            iptv_ppoe_logins = defaultdict(list)
+            for r in c.execute('iptv-ppoe-logins.sql'):
+                iptv_ppoe_logins[r.account_id].append(r.login)
 
             if self._accs_list:
                 cnt_estimate = len(self._accs_list)
